@@ -16,15 +16,11 @@ import (
 //read yaml, remove duplicate block
 
 func main() {
+
 	src := `
-american:
-  - Boston Red Sox
-  - Detroit Tigers
-  - New York Yankees
-national:
-  - New York Mets
-  - Chicago Cubs
-  - Atlanta Braves
+defaults: &defaults
+   adapter:  postgres
+   host:     localhost
 `
 	tokens := lexer.Tokenize(src)
 	f, err := parser.Parse(tokens, 0)
@@ -35,11 +31,7 @@ national:
 	for _, doc := range f.Docs {
 		ast.Walk(&v, doc.Body)
 	}
-	// expect := fmt.Sprintf("\n%+v\n", f)
-	// if test.expect != expect {
-	// tokens.Dump()
-	// t.Fatalf("unexpected output: [%s] != [%s]", test.expect, expect)
-	// }
+
 }
 
 type pathCapturer struct {
@@ -61,9 +53,77 @@ type Visitor struct {
 }
 
 func (v *Visitor) Visit(node ast.Node) ast.Visitor {
-	tk := node.GetToken()
 	fmt.Printf("level %d %s %v\n", node.GetToken().Position.IndentLevel, node.GetToken().Type, node.GetToken().Value)
-	tk.Prev = nil
-	tk.Next = nil
 	return v
+}
+func Walk(v ast.Visitor, node ast.Node) {
+	if v = v.Visit(node); v == nil {
+		return
+	}
+
+	switch n := node.(type) {
+	case *ast.CommentNode:
+	case *ast.NullNode:
+		walkComment(v, n.BaseNode)
+	case *ast.IntegerNode:
+		walkComment(v, n.BaseNode)
+	case *ast.FloatNode:
+		walkComment(v, n.BaseNode)
+	case *ast.StringNode:
+		walkComment(v, n.BaseNode)
+	case *ast.MergeKeyNode:
+		walkComment(v, n.BaseNode)
+	case *ast.BoolNode:
+		walkComment(v, n.BaseNode)
+	case *ast.InfinityNode:
+		walkComment(v, n.BaseNode)
+	case *ast.NanNode:
+		walkComment(v, n.BaseNode)
+	case *ast.LiteralNode:
+		walkComment(v, n.BaseNode)
+		Walk(v, n.Value)
+	case *ast.DirectiveNode:
+		walkComment(v, n.BaseNode)
+		Walk(v, n.Value)
+	case *ast.TagNode:
+		walkComment(v, n.BaseNode)
+		Walk(v, n.Value)
+	case *ast.DocumentNode:
+		walkComment(v, n.BaseNode)
+		Walk(v, n.Body)
+	case *ast.MappingNode:
+		walkComment(v, n.BaseNode)
+		for _, value := range n.Values {
+			Walk(v, value)
+		}
+	case *ast.MappingKeyNode:
+		walkComment(v, n.BaseNode)
+		Walk(v, n.Value)
+	case *ast.MappingValueNode:
+		walkComment(v, n.BaseNode)
+		Walk(v, n.Key)
+		Walk(v, n.Value)
+	case *ast.SequenceNode:
+		walkComment(v, n.BaseNode)
+		for _, value := range n.Values {
+			Walk(v, value)
+		}
+	case *ast.AnchorNode:
+		walkComment(v, n.BaseNode)
+		Walk(v, n.Name)
+		Walk(v, n.Value)
+	case *ast.AliasNode:
+		walkComment(v, n.BaseNode)
+		Walk(v, n.Value)
+	}
+}
+
+func walkComment(v ast.Visitor, base *ast.BaseNode) {
+	if base == nil {
+		return
+	}
+	if base.Comment == nil {
+		return
+	}
+	Walk(v, base.Comment)
 }
