@@ -6,54 +6,80 @@ import (
 	"fmt"
 	"log"
 
+	_ "github.com/cjkao/helmHelper"
+	hhelper "github.com/cjkao/helmHelper"
+	"github.com/goccy/go-yaml"
 	"github.com/goccy/go-yaml/ast"
 	"github.com/goccy/go-yaml/lexer"
 	"github.com/goccy/go-yaml/parser"
-	"github.com/goccy/go-yaml/token"
 )
 
-//flags,
-//read yaml, remove duplicate block
+// flags,
+// read yaml, remove duplicate block
+// delete a line
+
+func getNode() ast.Node {
+	src2 := `
+Block style: 
+- Pluto     # You call this a planet?
+- a
+- c
+`
+	tokens2 := lexer.Tokenize(src2)
+	f2, _ := parser.Parse(tokens2, 0)
+	return f2.Docs[0].Body
+}
+
+var srcNode ast.Node
 
 func main() {
 
 	src := `
-defaults: &defaults
-   adapter:  postgres
-   host:     localhost
+# Ordered sequence of nodes in YAML STRUCTURE
+Block style: 
+- Pluto     # You call this a planet?
+- Mercury   # Rotates - no light/dark sides.
+- Venus     # Deadliest. Aptly named.
+- Earth     # Mostly dirt.
+- Mars      # Seems empty.
+- Jupiter   # The king.
+- Saturn    # Pretty.
+- Uranus    # Where the sun hardly shines.
+- Neptune   # Boring. No rings.
+Flow style: [ Mercury, Venus, Earth, Mars,      # Rocks
+              Jupiter, Saturn, Uranus, Neptune, # Gas
+              Pluto ]                           # Overrated
 `
+
+	srcNode = getNode()
 	tokens := lexer.Tokenize(src)
 	f, err := parser.Parse(tokens, 0)
 	if err != nil {
 		log.Fatalf("%+v", err)
 	}
+	if err != nil {
+		fmt.Printf("%v\n", err)
+	}
+	// print(node)
 	var v Visitor
 	for _, doc := range f.Docs {
-		ast.Walk(&v, doc.Body)
+		Walk(&v, doc.Body)
+		printYaml(doc.Body)
 	}
-
 }
-
-type pathCapturer struct {
-	capturedNum   int
-	orderedPaths  []string
-	orderedTypes  []ast.NodeType
-	orderedTokens []*token.Token
-}
-
-func (c *pathCapturer) Visit(node ast.Node) ast.Visitor {
-	c.capturedNum++
-	c.orderedPaths = append(c.orderedPaths, node.GetPath())
-	c.orderedTypes = append(c.orderedTypes, node.Type())
-	c.orderedTokens = append(c.orderedTokens, node.GetToken())
-	return c
+func printYaml(v ast.Node) {
+	bytes, err := yaml.Marshal(v)
+	if err != nil {
+		panic(err)
+	}
+	fmt.Println("\n--------\n" + string(bytes))
 }
 
 type Visitor struct {
 }
 
 func (v *Visitor) Visit(node ast.Node) ast.Visitor {
-	fmt.Printf("level %d %s %v\n", node.GetToken().Position.IndentLevel, node.GetToken().Type, node.GetToken().Value)
+	fmt.Printf("level %s > %s > %v\n", node.GetPath(), node.GetToken().Type, node.GetToken().Value)
 	return v
 }
 func Walk(v ast.Visitor, node ast.Node) {
@@ -105,8 +131,21 @@ func Walk(v ast.Visitor, node ast.Node) {
 		Walk(v, n.Value)
 	case *ast.SequenceNode:
 		walkComment(v, n.BaseNode)
-		for _, value := range n.Values {
-			Walk(v, value)
+		nv := n.Values
+		for i := len(n.Values) - 1; i >= 0; i-- {
+
+			if hhelper.IsLeaf(n.Values[i]) && hhelper.IsExistInGolden(n.Values[i], srcNode) {
+				fmt.Printf("current value is leaf")
+				nv = hhelper.SliceRemove(n.Values[i], nv)
+			}
+			// Walk(v, value)
+		}
+		n.Values = nv
+		for _, value := range nv {
+			if hhelper.IsLeaf(value) { //skip leaf
+				continue
+			}
+			Walk(v, value) //drill down other types
 		}
 	case *ast.AnchorNode:
 		walkComment(v, n.BaseNode)
