@@ -3,6 +3,7 @@ package hhelper
 import (
 	"fmt"
 	"regexp"
+	"strings"
 
 	"github.com/goccy/go-yaml"
 	"github.com/goccy/go-yaml/ast"
@@ -38,9 +39,18 @@ func IsLeaf(node ast.Node) bool {
 	}
 	return false
 }
+func getStrFromNode(snode ast.Node) string {
+	ret := strings.Split(snode.String(), " #")
+	return ret[0]
+}
+
+// does src node can be found in golden node
 func IsExistInGolden(snode ast.Node, golden ast.Node) bool {
+
+	//get value of snode
+
 	pathStr := snode.GetPath()
-	fmt.Print(snode.String())
+	print(snode.GetToken().Value)
 	sampleRegex := regexp.MustCompile(`\[\d+\]$`)
 	widePath := sampleRegex.ReplaceAllString(pathStr, "[*]")
 	//path, err := yaml.PathString(pathStr)
@@ -59,12 +69,12 @@ func IsExistInGolden(snode ast.Node, golden ast.Node) bool {
 		switch n := node.(type) {
 		case *ast.SequenceNode:
 			for _, val := range n.Values {
-				if val.String() == snode.String() {
+				if val.GetToken().Value == snode.GetToken().Value {
 					return true
 				}
 			}
 		default:
-			if node.String() == snode.String() {
+			if node.GetToken().Value == snode.GetToken().Value {
 				return true
 			}
 		}
@@ -72,8 +82,14 @@ func IsExistInGolden(snode ast.Node, golden ast.Node) bool {
 	}
 	return false
 }
+
+// remove elem from arr slice
 func SliceRemove(elem ast.Node, arr []ast.Node) []ast.Node {
 	idx := slices.IndexFunc(arr, func(c ast.Node) bool { return c == elem })
+	arr = append(arr[:idx], arr[idx+1:]...)
+	return arr
+}
+func SliceMappingRemove(idx int, arr []*ast.MappingValueNode) []*ast.MappingValueNode {
 	arr = append(arr[:idx], arr[idx+1:]...)
 	return arr
 }

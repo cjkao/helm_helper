@@ -6,8 +6,7 @@ import (
 	"fmt"
 	"log"
 
-	_ "github.com/cjkao/helmHelper"
-	hhelper "github.com/cjkao/helmHelper"
+	hhelper "github.com/cjkao/helm-helper"
 	"github.com/goccy/go-yaml"
 	"github.com/goccy/go-yaml/ast"
 	"github.com/goccy/go-yaml/lexer"
@@ -21,9 +20,8 @@ import (
 func getNode() ast.Node {
 	src2 := `
 Block style: 
-- Pluto     # You call this a planet?
-- a
-- c
+  a : a1
+Flow style: [ Mercury, Venus, Earth, Mars]
 `
 	tokens2 := lexer.Tokenize(src2)
 	f2, _ := parser.Parse(tokens2, 0)
@@ -32,39 +30,31 @@ Block style:
 
 var srcNode ast.Node
 
+// fix me : flow style + comment in flow will break document if print with comment
 func main() {
 
 	src := `
-# Ordered sequence of nodes in YAML STRUCTURE
 Block style: 
-- Pluto     # You call this a planet?
-- Mercury   # Rotates - no light/dark sides.
-- Venus     # Deadliest. Aptly named.
-- Earth     # Mostly dirt.
-- Mars      # Seems empty.
-- Jupiter   # The king.
-- Saturn    # Pretty.
-- Uranus    # Where the sun hardly shines.
-- Neptune   # Boring. No rings.
-Flow style: [ Mercury, Venus, Earth, Mars,      # Rocks
-              Jupiter, Saturn, Uranus, Neptune, # Gas
-              Pluto ]                           # Overrated
+  a : a1
+Flow style: [ Mercury, Venus, Earth, Mars,      
+              Jupiter, Saturn, Uranus, Neptune, 
+              Pluto ]                           
 `
-
 	srcNode = getNode()
 	tokens := lexer.Tokenize(src)
-	f, err := parser.Parse(tokens, 0)
+	f, err := parser.Parse(tokens, parser.ParseComments)
+	// f, err := parser.Parse(tokens, 0)
 	if err != nil {
 		log.Fatalf("%+v", err)
 	}
 	if err != nil {
 		fmt.Printf("%v\n", err)
 	}
-	// print(node)
-	var v Visitor
+	print(f.Docs[0].String())
+	v := Visitor{}
 	for _, doc := range f.Docs {
 		Walk(&v, doc.Body)
-		printYaml(doc.Body)
+		printYaml(doc)
 	}
 }
 func printYaml(v ast.Node) {
@@ -73,6 +63,63 @@ func printYaml(v ast.Node) {
 		panic(err)
 	}
 	fmt.Println("\n--------\n" + string(bytes))
+}
+func IsNullNode(node ast.Node) bool {
+	switch n := node.(type) {
+	case *ast.MappingValueNode:
+		if n.Value == nil {
+			return true
+		}
+	}
+	return false
+}
+func WalkToNoNil(node ast.Node) {
+	switch n := node.(type) {
+
+	case *ast.MappingNode: // ":"
+		nv := n.Values
+		for i := len(n.Values) - 1; i >= 0; i-- {
+			if IsNullNode(n.Values[i]) {
+				nv = hhelper.SliceMappingRemove(i, nv)
+			}
+		}
+		for _, value := range n.Values {
+			WalkToNoNil(value)
+		}
+		// case *ast.MappingValueNode:
+		// 	if hhelper.IsLeaf(n.Value) && hhelper.IsExistInGolden(n.Value, srcNode) {
+		// 		fmt.Printf("_+_")
+		// 		n.Key = nil
+		// 		n.Value = nil
+		// 	} else {
+		// 		Walk(v, n.Key)
+		// 		Walk(v, n.Value)
+		// 	}
+		// case *ast.SequenceNode:
+		// 	nv := n.Values
+		// 	for i := len(n.Values) - 1; i >= 0; i-- {
+		// 		println(n.Values[i].String())
+		// 		if hhelper.IsLeaf(n.Values[i]) && hhelper.IsExistInGolden(n.Values[i], srcNode) {
+		// 			fmt.Printf("+")
+		// 			nv = hhelper.SliceRemove(n.Values[i], nv)
+		// 		}
+		// 		// Walk(v, value)
+		// 	}
+		// 	n.Values = nv
+		// 	for _, value := range nv {
+		// 		if hhelper.IsLeaf(value) { //skip leaf
+		// 			continue
+		// 		}
+		// 		Walk(v, value) //drill down other types
+		// 	}
+		// case *ast.AnchorNode:
+		// 	walkComment(v, n.BaseNode)
+		// 	Walk(v, n.Name)
+		// 	Walk(v, n.Value)
+		// case *ast.AliasNode:
+		// 	walkComment(v, n.BaseNode)
+		// 	Walk(v, n.Value)
+	}
 }
 
 type Visitor struct {
@@ -117,25 +164,43 @@ func Walk(v ast.Visitor, node ast.Node) {
 	case *ast.DocumentNode:
 		walkComment(v, n.BaseNode)
 		Walk(v, n.Body)
-	case *ast.MappingNode:
+	case *ast.MappingNode: // ":"
 		walkComment(v, n.BaseNode)
 		for _, value := range n.Values {
 			Walk(v, value)
 		}
+		nv := n.Values
+		for i := len(n.Values) - 1; i >= 0; i-- {
+			if IsNullNode(n.Values[i]) {
+				nv = hhelper.SliceMappingRemove(i, nv)
+			} else {
+				Walk(v, n.Values[i])
+			}
+		}
+		n.Values = nv
+
 	case *ast.MappingKeyNode:
 		walkComment(v, n.BaseNode)
 		Walk(v, n.Value)
 	case *ast.MappingValueNode:
 		walkComment(v, n.BaseNode)
-		Walk(v, n.Key)
-		Walk(v, n.Value)
+		if hhelper.IsLeaf(n.Value) && hhelper.IsExistInGolden(n.Value, srcNode) {
+			fmt.Printf("_+_")
+			n.Key = nil
+			n.Value = nil
+			// n = nil
+		} else {
+
+			Walk(v, n.Key)
+			Walk(v, n.Value)
+		}
 	case *ast.SequenceNode:
 		walkComment(v, n.BaseNode)
 		nv := n.Values
 		for i := len(n.Values) - 1; i >= 0; i-- {
-
+			println(n.Values[i].String())
 			if hhelper.IsLeaf(n.Values[i]) && hhelper.IsExistInGolden(n.Values[i], srcNode) {
-				fmt.Printf("current value is leaf")
+				fmt.Printf("+")
 				nv = hhelper.SliceRemove(n.Values[i], nv)
 			}
 			// Walk(v, value)
@@ -158,6 +223,7 @@ func Walk(v ast.Visitor, node ast.Node) {
 }
 
 func walkComment(v ast.Visitor, base *ast.BaseNode) {
+
 	if base == nil {
 		return
 	}
